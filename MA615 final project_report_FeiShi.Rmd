@@ -1,0 +1,222 @@
+---
+title: "Changes of Donald Trump before and after knowing campaigning against Hillary
+  Clinton"
+author: "Fei Shi"
+date: "12/18/2017"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = FALSE, message = FALSE, comment = "")
+```
+
+
+###Introduction
+
+Donald John Trump  is the 45th and current President of the United States, in office since January 20, 2017. As it is well known that before entering politics, he was a businessman and television personality. And after becoming the presumptive Republican nominee, Donald John Trump shifted his focus to the general election. After June 6, 2016,  Hillary Clinton became the presumptive Democratic nominee, and after that Trump began campaigning against Hillary Clinton, as we know Hillary Clinton is most likely to be President at that time, we want to know what changes of Donald Trump before and after knowing campaigning against Hillary Clinton , is he some feared or disappointed? In this project, we will analysis this topic using texting mining techniques.
+
+
+###Material and Methods
+
+####Data
+
+The data used in this project are tweets from Donald John Trump mainly in year 2016, the range is from 2015-12-14 to 2016-08-08, the source of the data comes from tweets website and can be easily downloaded from 'http://varianceexplained.org/files/trump_tweets_df.rda'. There are 1512 with 16 variables in the original data, but for safety, variables such as location information are dropped, we only use variables 'id', 'created', 'text' in our analysis, 'id' is the uniqute identifier for each tweet, 'created' is the time line while 'text' is the content of the tweet.
+
+####Tools
+
+
+We will use the following R packages and make reference from the text book https://www.tidytextmining.com/ as well as github https://github.com/dgrtwo/dgrtwo.github.com/blob/master/_R/.
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(scales)
+library(ggplot2)
+library(stringr)
+library(tidytext)
+library(broom)
+library(wordcloud)
+
+```
+
+
+####Results
+
+####Time series plot
+
+First, we create a new variable called 'Status' which contains two categories, the first one is 'Before' which means the tweet created time before 2016-06-06 the day Hillary Clinton became the presumptive Democratic nominee, and the Status 'After' the time after that day, and then we plot the number of tweets vs time hours seperately for the two status:
+
+```{r}
+#load(url("http://varianceexplained.org/files/trump_tweets_df.rda"))
+
+load("trump_tweets_df.rda")
+tweets <- trump_tweets_df %>%
+  select(id,  text, created) %>%
+  mutate(Status = ifelse(created < "2016-6-6", "Before", "After"))
+tweets %>%
+  count(Status, hour = hour(with_tz(created, "EST"))) %>%
+  mutate(percent = n / sum(n)) %>%
+  ggplot(aes(hour, percent, color = Status)) +
+  geom_line() +   labs(x = "Hour of day (EST)",
+       y = "% of tweets",
+       color = "")
+```
+
+So it can be found that after Trump knowing campaigning against Hillary Clinton, it appears that he becomes much more busy while having much less time to post tweets, the numbers of tweets are obviously lower than before knowing campaigning against Hillary Clinton, it seems like Trump become serious about the campaign.
+
+####Words used in the two periods
+
+Like the reference did, we remove tweets which are likely not be posted by Trump himself and show most common words used:
+
+```{r}
+reg <- "([^A-Za-z\\d#@']|'(?![A-Za-z\\d#@]))"
+tweet_words <- tweets %>%
+  filter(!str_detect(text, '^"')) %>%
+  mutate(text = str_replace_all(text, "https://t.co/[A-Za-z\\d]+|&amp;", "")) %>%
+  unnest_tokens(word, text, token = "regex", pattern = reg) %>%
+  filter(!word %in% stop_words$word,
+         str_detect(word, "[a-z]"))
+
+tweet_words %>%
+  count(word, sort = TRUE) %>%
+  head(20) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n)) +
+  geom_bar(stat = "identity") +
+  ylab("Occurrences") +
+  coord_flip()
+```
+
+Obviously, he care more about hillary cliton than himself, also, he cares about jobs, people, media as well as vote and president and etc.
+
+Next, we show the words most different from two status:
+
+```{r}
+beofre_after_ratios <- tweet_words %>%
+  count(word, Status) %>%
+  filter(sum(n) >= 5) %>%
+  spread(Status, n, fill = 0) %>%
+  ungroup() %>% 
+  mutate(logratio = log2((Before +1) / (After+1))) %>%
+  arrange(desc(logratio))
+
+beofre_after_ratios %>%
+  group_by(logratio > 0) %>%
+  top_n(15, abs(logratio)) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, logratio)) %>%
+  ggplot(aes(word, logratio, fill = logratio < 0)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  ylab("Before / after log ratio") 
+```
+
+The blue one stands for before campaigning against Hillary Clinton, it appears hard to understand the words, but the red one for after campaigning against Hillary Clinton, it can be seen that he cares about 'vote trump' and 'debate' as well as 'woman'. To see more clearly, we use wordclouds to show the maps of the words in the two periods:
+
+```{r}
+frequency <- tweet_words %>% 
+  group_by(Status) %>% 
+  count(word, sort = TRUE) %>% 
+  left_join(tweet_words %>% 
+              group_by(Status) %>% 
+              summarise(total = n())) %>%
+  mutate(freq = n/total)
+
+
+frequency <- frequency %>% 
+  select(Status, word, freq) %>% 
+  spread(Status, freq) %>%
+  arrange(Before, After)
+
+head(frequency)
+
+temp =  tweet_words %>% group_by(Status) %>% 
+  anti_join(stop_words) %>%
+  count(word)
+temp2 = temp %>% filter(Status == "Before") %>% 
+  with(wordcloud(word, n, max.words = 100))
+  temp3 = temp %>% filter(Status == "After")%>% 
+  with(wordcloud(word, n, max.words = 100))
+```
+ 
+We can find that before, Trump is selfish, the world Trump is very large, but the two words hillary, clinton are larger after 2016-06-06, so Trump really talks more about hillary clinton than the period before. And next, we use the following plot to show the shared words and different words across the two periods:
+ 
+```{r}
+ggplot(frequency, aes(Before, After)) +
+  geom_jitter(alpha = 0.1, size = 2.5, width = 0.25, height = 0.25) +
+  geom_text(aes(label = word), check_overlap = TRUE, vjust = 1.5) +
+  scale_x_log10(labels = percent_format()) +
+  scale_y_log10(labels = percent_format()) +
+  geom_abline(color = "red")
+```
+
+As the words in the line are the common words in the two periods, we can find whether or not before and after compaigning against hillary clinton, Trump cares about job and people also voters as the three words are in the line, also, Trump always like joke, so joke is shown in the line too, but we can find something different, on the top of the tail of the line, we can find hillary clinton is in the side of after, it means Trump indeed talks about hillary clinton more ofthen.
+
+###Sentiment analysis
+
+Finally, in this section, we will use Sentiment analysis to compare the sentiments including anger, disgust, fear, joy, negative,  sadness and etc as follows:
+
+```{r}
+nrc <- sentiments %>%
+  filter(lexicon == "nrc") %>%
+  dplyr::select(word, sentiment)
+
+head(nrc)
+```
+
+
+```{r}
+sources <- tweet_words %>%
+  group_by(Status) %>%
+  mutate(total_words = n()) %>%
+  ungroup() %>%
+  distinct(id, Status, total_words)
+
+
+
+by_source_sentiment <- tweet_words %>%
+  inner_join(nrc, by = "word") %>%
+  count(sentiment, id) %>%
+  ungroup() %>%
+  complete(sentiment, id, fill = list(n = 0)) %>%
+  inner_join(sources) %>%
+  group_by(Status, sentiment, total_words) %>%
+  summarize(words = sum(n)) %>%
+  ungroup()
+
+head(by_source_sentiment)
+```
+
+After obtained the sentiments, we use Exact Poisson tests to test whether the ratio between two rate parameters are equal or not as well as compute confidence intervals:
+
+
+```{r}
+
+sentiment_differences <- by_source_sentiment %>%
+  group_by(sentiment) %>%
+  do(tidy(poisson.test(.$words, .$total_words)))
+
+sentiment_differences
+
+
+sentiment_differences %>%
+  ungroup() %>%
+  mutate(sentiment = reorder(sentiment, estimate)) %>%
+  mutate_each(funs(. - 1), estimate, conf.low, conf.high) %>%
+  ggplot(aes(estimate, sentiment)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) +
+  scale_x_continuous(labels = percent_format()) +
+  labs(x = "% increase in after relative to before",
+       y = "Sentiment")
+```
+
+
+From the plots, it can be found fear, anger, negative, disgust, sadness are the main sentiments after campaigning against Hillary Clinton as there are different levels percentages increase in after status than before, actually, these results reflect the sentiment of Trump changed from 'joy' before campaigning against Hillary Clinton, on one hand, Trump might fear failture, on the the hand, he defame Hillary Clinton. However, he sometimes feel anger and sadness about rumors from Hillary Clinton. After all, it is USA president election, Trump really change before and after knowing campaigning against Hillary Clinton, besides, in future analysis, with more tweets data, we can compare the changes between before and after Trump becomes USA president.
+
+
